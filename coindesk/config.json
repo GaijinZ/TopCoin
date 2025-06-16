@@ -1,0 +1,5 @@
+{
+  "api_port": "8081",
+  "api_url": "https://data-api.coindesk.com",
+  "api_key": "ba55e6e17d4ca0401105324405ed10033f62f558be58c53b8a33ed58d6806a30"
+}
