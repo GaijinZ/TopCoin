@@ -6,11 +6,10 @@ import (
 )
 
 type Config struct {
-	Hostname       string `json:"hostname"`
-	Port           string `json:"port"`
-	ApiPort        string `json:"api_port"`
-	ApiServiceName string `json:"api_service_name"`
-	ApiURL         string `json:"api_url"`
+	HostName string `json:"host_name"`
+	ApiPort  string `json:"api_port"`
+	ApiURL   string `json:"api_url"`
+	ApiKey   string `json:"api_key"`
 }
 
 func LoadConfig(path string) (*Config, error) {

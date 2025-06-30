@@ -22,22 +22,27 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg, err := config.LoadConfig("config.json")
+	cfg, err := config.LoadConfig("pkg/config/config.json")
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
 	}
 
-	cryptoCurrencies := handler.NewCryptoCurrencies(*cfg)
+	currencyInfo := handler.NewCurrencyInfo(*cfg)
 
-	listener, err := net.Listen("tcp", ":"+cfg.Port)
+	listener, err := net.Listen("tcp", ":"+cfg.ApiPort)
 	if err != nil {
 		fmt.Println("Error listening:", err.Error())
 	}
 
-	r := router.Router(cryptoCurrencies)
+	r := router.Router(currencyInfo)
 
-	srv := server.NewServer(listener, r)
+	srv := server.NewServer(
+		server.WithListener(listener),
+		server.WithRouter(r),
+		server.WithHost(cfg.HostName),
+		server.WithPort(cfg.ApiPort),
+	)
 
 	go srv.Run()
 

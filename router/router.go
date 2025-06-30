@@ -6,10 +6,13 @@ import (
 	"topcoint/handler"
 )
 
-func Router(cryptoCurrency handler.CryptoCurrencier) http.Handler {
+func Router(currencyInfo handler.Currencier) http.Handler {
 	router := http.NewServeMux()
 
-	router.HandleFunc("/info", cryptoCurrency.GetCryptoCurrencies)
+	router.HandleFunc("/coindesk", currencyInfo.GetCurrencyInfo)
+
+	fs := http.FileServer(http.Dir("public"))
+	router.Handle("/", fs)
 
 	return router
 }
