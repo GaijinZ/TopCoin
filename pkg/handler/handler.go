@@ -33,29 +33,15 @@ var upgrader = websocket.Upgrader{
 
 func (c *CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "public/home.html")
-	//
-	//currencyInfoRequest := types.CurrencyInfoRequest{}
-	//
-	//err := currencyInfoRequest.Parse(r)
-	//if err != nil {
-	//	http.Error(w, err.Error(), http.StatusBadRequest)
-	//	return
-	//}
-	//
-	//err = currencyInfoRequest.Validate()
-	//if err != nil {
-	//	http.Error(w, err.Error(), http.StatusBadRequest)
-	//	return
-	//}
 }
 
 func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 	currencyInfoResponse := types.CurrencyInfoResponse{Data: make(map[string]interface{})}
-	//currencyInfoRequest := types.CurrencyInfoRequest{}
+	// currencyInfoRequest := types.CurrencyInfoRequest{}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		fmt.Println("Error upgrading:", err)
+		fmt.Println("Error upgrading connection:", err)
 		return
 	}
 	defer conn.Close()
@@ -70,21 +56,16 @@ func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		//if msg.Symbol == "" || msg.Page == "" || msg.Pagination == "" {
-		//	conn.WriteJSON(map[string]string{"error": "Missing required fields"})
-		//	continue
-		//}
+		err = msg.Parse(r)
+		if err != nil {
+			conn.WriteJSON(map[string]string{"error": "Error parsing query parameters: " + err.Error()})
+			return
+		}
 
-		//err = currencyInfoRequest.Parse(r)
-		//if err != nil {
-		//	conn.WriteJSON(map[string]string{"error": "Error parsing query parameters: " + err.Error()})
-		//	return
-		//}
-		//
-		//if err = currencyInfoRequest.Validate(); err != nil {
-		//	conn.WriteJSON(map[string]string{"error": "Invalid input: " + err.Error()})
-		//	return
-		//}
+		if err = msg.Validate(); err != nil {
+			conn.WriteJSON(map[string]string{"error": "Invalid input: " + err.Error()})
+			return
+		}
 
 		currencyInfo := types.CurrencyInfoAPIResponse{}
 		queryCurrencyInfo := fmt.Sprintf(c.cfg.ApiURL+"/asset/v2/metadata?asset_lookup_priority=SYMBOL&assets=%s&asset_language=en-US&quote_asset=USD", msg.Symbol)

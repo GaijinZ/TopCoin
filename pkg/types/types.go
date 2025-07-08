@@ -6,12 +6,6 @@ import (
 	"strconv"
 )
 
-type CurrencyInfoRequest struct {
-	Symbol     string `json:"symbol"`
-	Pagination string `json:"pagination"`
-	Page       string `json:"page"`
-}
-
 type CurrencyInfoResponse struct {
 	Data map[string]interface{} `json:"Data"`
 }
@@ -40,7 +34,7 @@ type ClientMessage struct {
 	Pagination string `json:"pagination"`
 }
 
-func (c *CurrencyInfoRequest) Parse(r *http.Request) error {
+func (c *ClientMessage) Parse(r *http.Request) error {
 	if err := r.ParseForm(); err != nil {
 		return fmt.Errorf("failed to parse form: %w", err)
 	}
@@ -52,7 +46,7 @@ func (c *CurrencyInfoRequest) Parse(r *http.Request) error {
 	return nil
 }
 
-func (c *CurrencyInfoRequest) Validate() error {
+func (c *ClientMessage) Validate() error {
 	if c.Symbol == "" {
 		return fmt.Errorf("symbol is required")
 	}

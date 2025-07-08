@@ -54,11 +54,10 @@
   }
 
   function setupWebSocket() {
-    ws = new WebSocket(`ws://${location.host}/coindesk`);
-
+    ws = new WebSocket(`ws://${location.host}/coindesk?symbol=${encodeURIComponent(symbol)}&pagination=${encodeURIComponent(pagination)}&page=${currentPage}`);
     ws.onopen = () => {
       document.getElementById('output').textContent += 'WebSocket connection opened\n';
-      sendPageRequest(currentPage); // Initial request
+      sendPageRequest(currentPage);
     };
 
     ws.onmessage = (event) => {
