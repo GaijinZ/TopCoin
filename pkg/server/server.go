@@ -27,37 +27,31 @@ func WithPort(port string) Option {
 	}
 }
 
-func WithListener(listener net.Listener) Option {
-	return func(s *Server) {
-		s.Listener = listener
-	}
-}
-
 func WithRouter(router http.Handler) Option {
 	return func(s *Server) {
 		s.Router = router
 	}
 }
 
-func NewServer(opts ...Option) *Server {
+func NewServer(opts ...Option) (*Server, error) {
+	var err error
+
 	s := &Server{
-		Host: "localhost",
-		Port: "8080",
+		Host: "",
+		Port: "",
 	}
 
 	for _, opt := range opts {
 		opt(s)
 	}
 
-	return s
-}
+	s.Listener, err = net.Listen("tcp", s.Host+":"+s.Port)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener: %w", err)
+	}
 
-//func NewServer(listener net.Listener, router http.Handler) *Server {
-//	return &Server{
-//		Listener: listener,
-//		Router:   router,
-//	}
-//}
+	return s, nil
+}
 
 func (s *Server) Run() {
 	fmt.Println("Starting server")

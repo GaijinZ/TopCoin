@@ -2,19 +2,24 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
-	"net"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
-	"topcoint/handler"
 	"topcoint/pkg/config"
-	"topcoint/router"
-	"topcoint/server"
+	"topcoint/pkg/handler"
+	"topcoint/pkg/router"
+	"topcoint/pkg/server"
 )
 
 func main() {
+	configPath := flag.String("config", "", "path to config file")
+	flag.Parse()
+
+	wg := sync.WaitGroup{}
 	interrupt := make(chan os.Signal, 1)
 	defer close(interrupt)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -22,7 +27,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	cfg, err := config.LoadConfig("pkg/config/config.json")
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		fmt.Printf("Error loading config: %v\n", err)
 		os.Exit(1)
@@ -30,23 +35,37 @@ func main() {
 
 	currencyInfo := handler.NewCurrencyInfo(*cfg)
 
-	listener, err := net.Listen("tcp", ":"+cfg.ApiPort)
-	if err != nil {
-		fmt.Println("Error listening:", err.Error())
-	}
-
 	r := router.Router(currencyInfo)
 
-	srv := server.NewServer(
-		server.WithListener(listener),
+	srv, err := server.NewServer(
 		server.WithRouter(r),
 		server.WithHost(cfg.HostName),
 		server.WithPort(cfg.ApiPort),
 	)
+	if err != nil {
+		fmt.Printf("Error creating server: %v\n", err)
+		os.Exit(1)
+	}
 
-	go srv.Run()
+	shutdownSignalChan := make(chan struct{})
+
+	waitForShutdownTrigger := func(chw chan struct{}, wg *sync.WaitGroup) {
+		wg.Wait()
+		chw <- struct{}{}
+		close(chw)
+	}
+
+	wg.Add(1)
+	go func() {
+		srv.Run()
+		wg.Done()
+	}()
+
+	go waitForShutdownTrigger(shutdownSignalChan, &wg)
 
 	select {
+	case <-shutdownSignalChan:
+		fmt.Println("Received a shutdown signal, shutting down gracefully...")
 	case <-interrupt:
 		fmt.Println("Received a shutdown signal...")
 	case <-ctx.Done():

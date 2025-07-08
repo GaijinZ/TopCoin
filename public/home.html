@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Page Query Form</title>
+</head>
+<body>
+    <form id="pageQueryForm">
+        <label for="symbol">Symbol:</label>
+        <input type="text" id="symbol" name="symbol" required><br><br>
+
+        <label for="pagination">Pagination:</label>
+        <input type="text" id="pagination" name="pagination" required><br><br>
+
+        <label for="page">Page:</label>
+        <input type="text" id="page" name="page" required><br><br>
+
+        <button type="submit">Submit</button>
+    </form>
+    <script>
+        document.getElementById('pageQueryForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const symbol = encodeURIComponent(document.getElementById('symbol').value);
+            const pagination = encodeURIComponent(document.getElementById('pagination').value);
+            const page = encodeURIComponent(document.getElementById('page').value);
+            window.location.assign(`/results.html?symbol=${symbol}&pagination=${pagination}&page=${page}`);
+        });
+    </script>
+</body>
+</html>

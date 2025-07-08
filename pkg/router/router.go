@@ -3,16 +3,16 @@ package router
 import (
 	"net/http"
 
-	"topcoint/handler"
+	"topcoint/pkg/handler"
 )
 
 func Router(currencyInfo handler.Currencier) http.Handler {
 	router := http.NewServeMux()
 
+	router.HandleFunc("/home", currencyInfo.Home)
 	router.HandleFunc("/coindesk", currencyInfo.GetCurrencyInfo)
 
-	fs := http.FileServer(http.Dir("public"))
-	router.Handle("/", fs)
+	router.Handle("/result.html", http.FileServer(http.Dir("public")))
 
 	return router
 }
