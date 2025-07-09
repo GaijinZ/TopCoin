@@ -37,7 +37,6 @@ func (c *CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
 
 func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 	currencyInfoResponse := types.CurrencyInfoResponse{Data: make(map[string]interface{})}
-	// currencyInfoRequest := types.CurrencyInfoRequest{}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -45,6 +44,18 @@ func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+
+	serverMessages := make(chan interface{})
+	defer close(serverMessages)
+
+	go func() {
+		for msg := range serverMessages {
+			if err := conn.WriteJSON(msg); err != nil {
+				fmt.Println("Error sending message:", err)
+				return
+			}
+		}
+	}()
 
 	for {
 		var msg types.ClientMessage
@@ -55,6 +66,8 @@ func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 			}
 			break
 		}
+
+		serverMessages <- map[string]string{"info": "Server-initiated message sent!"}
 
 		err = msg.Parse(r)
 		if err != nil {
