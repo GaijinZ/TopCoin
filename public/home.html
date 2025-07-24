@@ -5,26 +5,75 @@
     <title>Page Query Form</title>
 </head>
 <body>
-    <form id="pageQueryForm">
-        <label for="symbol">Symbol:</label>
-        <input type="text" id="symbol" name="symbol" required><br><br>
+<h2>Search Crypto Assets</h2>
+<input type="text" id="search" placeholder="Search assets..." />
+<ul id="results"></ul>
+<hr>
+<form id="pageQueryForm">
+    <label for="symbol">Symbol:</label>
+    <input type="text" id="symbol" name="symbol" required><br><br>
 
-        <label for="pagination">Pagination:</label>
-        <input type="text" id="pagination" name="pagination" required><br><br>
+    <label for="pagination">Pagination:</label>
+    <input type="text" id="pagination" name="pagination" required><br><br>
 
-        <label for="page">Page:</label>
-        <input type="text" id="page" name="page" required><br><br>
+    <label for="page">Page:</label>
+    <input type="text" id="page" name="page" required><br><br>
 
-        <button type="submit">Submit</button>
-    </form>
-    <script>
-        document.getElementById('pageQueryForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const symbol = encodeURIComponent(document.getElementById('symbol').value);
-            const pagination = encodeURIComponent(document.getElementById('pagination').value);
-            const page = encodeURIComponent(document.getElementById('page').value);
-            window.location.assign(`/results.html?symbol=${symbol}&pagination=${pagination}&page=${page}`);
-        });
-    </script>
+    <button type="submit">Submit</button>
+
+    <div id="searchResults" style="margin-top: 1em;"></div>
+</form>
+
+<script>
+    document.getElementById('pageQueryForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const symbol = encodeURIComponent(document.getElementById('symbol').value);
+        const pagination = encodeURIComponent(document.getElementById('pagination').value, 10);
+        const page = encodeURIComponent(document.getElementById('page').value, 10);
+        window.location.assign(`/results.html?symbol=${symbol}&pagination=${pagination}&page=${page}`);
+    });
+
+    let searchTimeout;
+
+    document.getElementById('search').addEventListener('input', function () {
+    const query = this.value.trim();
+
+    clearTimeout(searchTimeout);
+    if (!query) {
+    document.getElementById('searchResults').innerHTML = '';
+    return;
+    }
+
+    searchTimeout = setTimeout(() => {
+        fetch(`/search?query=${encodeURIComponent(query)}`)
+            .then(res => res.json())
+            .then(data => {
+                const resultsDiv = document.getElementById('searchResults');
+                resultsDiv.innerHTML = '';
+
+                if (data.length === 0) {
+                    resultsDiv.textContent = 'No matches found.';
+                    return;
+                }
+
+                const ul = document.createElement('ul');
+                data.forEach(asset => {
+                    const li = document.createElement('li');
+                    li.textContent = `${asset.SYMBOL} - ${asset.NAME}`;
+                    li.addEventListener('click', () => {
+                        document.getElementById('search').value = asset.SYMBOL;
+                        resultsDiv.innerHTML = '';
+                    });
+                    ul.appendChild(li);
+                });
+                resultsDiv.appendChild(ul);
+            })
+            .catch(err => {
+                document.getElementById('searchResults').textContent = 'Error loading search results.';
+                console.error(err);
+            });
+    }, 200);
+    });
+</script>
 </body>
 </html>

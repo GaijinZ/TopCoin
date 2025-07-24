@@ -19,7 +19,7 @@ func main() {
 	configPath := flag.String("config", "", "path to config file")
 	flag.Parse()
 
-	wg := sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	interrupt := make(chan os.Signal, 1)
 	defer close(interrupt)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -34,6 +34,11 @@ func main() {
 	}
 
 	currencyInfo := handler.NewCurrencyInfo(*cfg)
+
+	err = currencyInfo.CacheCurrency()
+	if err != nil {
+		fmt.Printf("Error initializing currency info: %v\n", err)
+	}
 
 	r := router.Router(currencyInfo)
 
@@ -57,11 +62,11 @@ func main() {
 
 	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		srv.Run()
-		wg.Done()
 	}()
 
-	go waitForShutdownTrigger(shutdownSignalChan, &wg)
+	go waitForShutdownTrigger(shutdownSignalChan, wg)
 
 	select {
 	case <-shutdownSignalChan:

@@ -11,13 +11,14 @@
   </style>
 </head>
 <body>
+<button id="backHome" onclick="window.location.href='/home.html'">Back Home</button>
 <h1>WebSocket Currency Info</h1>
 <div id="pagination">
   <span id="pageNum">Page: 1</span>
+  <button id="prevBtn" onclick="loadPreviousPage()"Fold results</button>
 </div>
 <div id="error"></div>
 <pre id="output"></pre>
-
 <script>
   let currentPage = 1;
   let ws;
@@ -43,10 +44,21 @@
       ws.send(JSON.stringify({
         action: "load",
         symbol: symbol,
-        pagination: pagination,
-        page: String(page)
+        pagination: Number(pagination),
+        page: Number(page)
       }));
     }
+  }
+
+  function loadPreviousPage() {
+    if (currentPage <= 1 || isLoading) return;
+
+    currentPage -= 1;
+    updatePageDisplay();
+    clearOutput();
+    sendPageRequest(currentPage);
+
+    document.getElementById('prevBtn').disabled = currentPage <= 1;
   }
 
   function updatePageDisplay() {
@@ -68,7 +80,9 @@
           document.getElementById('output').textContent += 'Error from server: ' + data.error + '\n';
         } else if (data.data || data.Data) {
           const payload = data.data || data.Data;
-          document.getElementById('output').textContent += 'Received data (page ' + currentPage + '): ' + JSON.stringify(payload, null, 2) + '\n';
+          currentPage++;
+          updatePageDisplay();
+          document.getElementById('prevBtn').disabled = currentPage <= 1;
         } else {
           document.getElementById('output').textContent += 'Received: ' + JSON.stringify(data, null, 2) + '\n';
         }
@@ -106,13 +120,16 @@
 
   window.onscroll = function () {
     if (isLoading || !ws || ws.readyState !== WebSocket.OPEN) return;
+
     if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight) {
       isLoading = true;
-      currentPage++;
-      updatePageDisplay();
-      sendPageRequest(currentPage);
+      sendPageRequest(currentPage + 1);
     }
   };
+
+  function clearOutput() {
+    document.getElementById('output').textContent = '';
+  }
 </script>
 </body>
 </html>

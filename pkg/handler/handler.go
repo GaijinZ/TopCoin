@@ -3,26 +3,32 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-
-	"topcoint/pkg/config"
+	"strings"
+	"topcoint/pkg/service"
 	"topcoint/pkg/types"
 
 	"github.com/gorilla/websocket"
+	"topcoint/pkg/config"
 )
 
 type Currencier interface {
 	Home(w http.ResponseWriter, r *http.Request)
 	GetCurrencyInfo(w http.ResponseWriter, r *http.Request)
+	CacheCurrency() error
+	HandleSearch(w http.ResponseWriter, r *http.Request)
 }
 
 type CurrencyInfo struct {
-	cfg config.Config
+	cfg   config.Config
+	cache map[string]types.SummaryCryptoList
 }
 
 func NewCurrencyInfo(cfg config.Config) Currencier {
-	return &CurrencyInfo{cfg: cfg}
+	return &CurrencyInfo{
+		cfg:   cfg,
+		cache: make(map[string]types.SummaryCryptoList),
+	}
 }
 
 var upgrader = websocket.Upgrader{
@@ -36,8 +42,6 @@ func (c *CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
-	currencyInfoResponse := types.CurrencyInfoResponse{Data: make(map[string]interface{})}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		fmt.Println("Error upgrading connection:", err)
@@ -48,95 +52,43 @@ func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
 	serverMessages := make(chan interface{})
 	defer close(serverMessages)
 
-	go func() {
-		for msg := range serverMessages {
-			if err := conn.WriteJSON(msg); err != nil {
-				fmt.Println("Error sending message:", err)
-				return
-			}
-		}
-	}()
-
-	for {
-		var msg types.ClientMessage
-		err = conn.ReadJSON(&msg)
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Printf("WebSocket closed unexpectedly: %v\n", err)
-			}
-			break
-		}
-
-		serverMessages <- map[string]string{"info": "Server-initiated message sent!"}
-
-		err = msg.Parse(r)
-		if err != nil {
-			conn.WriteJSON(map[string]string{"error": "Error parsing query parameters: " + err.Error()})
-			return
-		}
-
-		if err = msg.Validate(); err != nil {
-			conn.WriteJSON(map[string]string{"error": "Invalid input: " + err.Error()})
-			return
-		}
-
-		currencyInfo := types.CurrencyInfoAPIResponse{}
-		queryCurrencyInfo := fmt.Sprintf(c.cfg.ApiURL+"/asset/v2/metadata?asset_lookup_priority=SYMBOL&assets=%s&asset_language=en-US&quote_asset=USD", msg.Symbol)
-		err = fetchAPIData(c.cfg.ApiKey, queryCurrencyInfo, &currencyInfo)
-		if err != nil {
-			conn.WriteJSON(map[string]string{"error": "Error fetching currency info data " + err.Error()})
-			return
-		}
-
-		currencyStats := types.CurrencyStatsAPIResponse{}
-		queryCurrencyStats := fmt.Sprintf(c.cfg.ApiURL+"/asset/v1/top/list?page=%s&page_size=%s&sort_by=CIRCULATING_MKT_CAP_USD&sort_direction=DESC&groups=ID,BASIC,SUPPLY,PRICE,MKT_CAP,VOLUME,CHANGE,TOPLIST_RANK&toplist_quote_asset=USD", msg.Page, msg.Pagination)
-		err = fetchAPIData(c.cfg.ApiKey, queryCurrencyStats, &currencyStats)
-		if err != nil {
-			conn.WriteJSON(map[string]string{"error": "Error fetching currency stats data " + err.Error()})
-			return
-		}
-
-		for k, v := range currencyInfo.Data {
-			currencyInfoResponse.Data[k] = fmt.Sprintf("currencyInfo %v", v)
-		}
-
-		for k, v := range currencyStats.Data {
-			currencyInfoResponse.Data[k] = fmt.Sprintf("currencyStats %v", v)
-		}
-
-		conn.WriteJSON(currencyInfoResponse)
-	}
+	go service.HandleOutgoingMessages(conn, serverMessages)
+	service.HandleIncomingMessages(c.cfg, conn, serverMessages)
 }
 
-func fetchAPIData(apiKey, url string, dest interface{}) error {
-	req, err := http.NewRequest("GET", url, nil)
+func (c *CurrencyInfo) CacheCurrency() error {
+	err := service.CacheCurrency(c.cfg, c.cache)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Accepts", "application/json")
-	req.Header.Set("authorization", "Apikey "+apiKey)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to execute request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var apiResp types.APIResponseWithError
-	if err = json.Unmarshal(body, &apiResp); err == nil && apiResp.Err != nil && apiResp.Err.Message != "" {
-		return fmt.Errorf("API error: %s", apiResp.Err.Message)
-	}
-
-	if err = json.Unmarshal(body, dest); err != nil {
-		return fmt.Errorf("failed to unmarshal response: %w", err)
+		return fmt.Errorf("failed to cache currency data: %w", err)
 	}
 
 	return nil
+}
+
+func (c *CurrencyInfo) HandleSearch(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		http.Error(w, "missing query param", http.StatusBadRequest)
+		return
+	}
+
+	results := searchAssets(query, c.cache)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func searchAssets(symbol string, cache map[string]types.SummaryCryptoList) []types.CryptoCurrencyList {
+	results := make([]types.CryptoCurrencyList, 0)
+	query := strings.ToLower(symbol)
+
+	for _, summary := range cache {
+		for _, asset := range summary.Data.List {
+			if strings.Contains(strings.ToLower(asset.Name), query) {
+				results = append(results, asset)
+			}
+		}
+	}
+
+	return results
 }
