@@ -1,8 +1,8 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
-	"net/http"
 	"strconv"
 )
 
@@ -11,11 +11,38 @@ type CurrencyInfoResponse struct {
 }
 
 type CurrencyInfoAPIResponse struct {
-	Data map[string]interface{} `json:"Data"`
+	Data map[string]AssetInfo `json:"Data"`
 }
 
 type CurrencyStatsAPIResponse struct {
-	Data map[string]interface{} `json:"Data"`
+	Data CurrencyAPIStatsData `json:"Data"`
+}
+
+type CurrencyAPIStatsData struct {
+	List []AssetInfo `json:"List"`
+}
+
+type AssetInfo struct {
+	CreatedOn                 int64   `json:"CREATED_ON"`
+	CreatedOnFormatted        string  `json:"CREATED_ON_FORMATTED,omitempty"`
+	LunchDate                 int64   `json:"LAUNCH_DATE"`
+	LunchDateFormatted        string  `json:"LUNCH_DATE_FORMATTED,omitempty"`
+	AssetType                 string  `json:"ASSET_TYPE"`
+	Name                      string  `json:"NAME"`
+	Price                     float64 `json:"PRICE_USD"`
+	PriceLastUpdated          int64   `json:"PRICE_USD_LAST_UPDATE_TS"`
+	PriceLastUpdatedFormatted string  `json:"PRICE_USD_LAST_FORMATTED,omitempty"`
+	Description               string  `json:"ASSET_DESCRIPTION"`
+}
+
+type CryptoCurrencyList struct {
+	Name string `json:"NAME"`
+}
+
+type SummaryCryptoList struct {
+	Data struct {
+		List []CryptoCurrencyList `json:"LIST"`
+	} `json:"Data"`
 }
 
 type APIError struct {
@@ -23,52 +50,55 @@ type APIError struct {
 }
 
 type APIResponseWithError struct {
-	Data map[string]interface{} `json:"Data"`
-	Err  *APIError              `json:"Err,omitempty"`
+	Data map[string]AssetInfo `json:"Data"`
+	Err  *APIError            `json:"Err,omitempty"`
 }
 
 type ClientMessage struct {
 	Action     string `json:"action"`
 	Symbol     string `json:"symbol"`
-	Page       string `json:"page"`
-	Pagination string `json:"pagination"`
+	Page       int    `json:"page"`
+	Pagination int    `json:"pagination"`
 }
 
-func (c *ClientMessage) Parse(r *http.Request) error {
-	if err := r.ParseForm(); err != nil {
-		return fmt.Errorf("failed to parse form: %w", err)
+func (c *ClientMessage) Parse(body []byte) error {
+	type tmpMsg struct {
+		Action     string `json:"action"`
+		Symbol     string `json:"symbol"`
+		Page       string `json:"page"`
+		Pagination string `json:"pagination"`
 	}
 
-	c.Symbol = r.FormValue("symbol")
-	c.Pagination = r.FormValue("pagination")
-	c.Page = r.FormValue("page")
+	var tmp tmpMsg
+	if err := json.Unmarshal(body, &tmp); err != nil {
+		return fmt.Errorf("failed to parse JSON: %w", err)
+	}
+
+	page, err := strconv.Atoi(tmp.Page)
+	if err != nil {
+		return fmt.Errorf("invalid page: %w", err)
+	}
+
+	pagination, err := strconv.Atoi(tmp.Pagination)
+	if err != nil {
+		return fmt.Errorf("invalid pagination: %w", err)
+	}
+
+	c.Action = tmp.Action
+	c.Symbol = tmp.Symbol
+	c.Page = page
+	c.Pagination = pagination
 
 	return nil
 }
 
 func (c *ClientMessage) Validate() error {
-	if c.Symbol == "" {
-		return fmt.Errorf("symbol is required")
+	if c.Pagination >= 50 || c.Pagination < 10 {
+		return fmt.Errorf("pagination must be less then 50 and at least 10")
 	}
 
-	if c.Pagination == "" {
-		return fmt.Errorf("pagination is required")
-	}
-
-	if c.Page == "" {
-		return fmt.Errorf("page is required")
-	}
-
-	if _, err := strconv.Atoi(c.Pagination); err != nil {
-		return fmt.Errorf("pagination must be a number")
-	}
-
-	if _, err := strconv.Atoi(c.Page); err != nil {
+	if c.Page < 1 {
 		return fmt.Errorf("page must be a number")
-	}
-
-	if c.Pagination < "10" {
-		return fmt.Errorf("pagination must be at least 10")
 	}
 
 	return nil

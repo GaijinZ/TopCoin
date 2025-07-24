@@ -54,7 +54,7 @@ func NewServer(opts ...Option) (*Server, error) {
 }
 
 func (s *Server) Run() {
-	fmt.Println("Starting server")
+	fmt.Println("Starting server " + s.Host + ":" + s.Port)
 
 	if err := http.Serve(s.Listener, s.Router); err != nil {
 		fmt.Printf("Failed to serve: %v", err)
