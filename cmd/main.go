@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"topcoint/pkg/service"
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/handler"
@@ -33,7 +34,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	currencyInfo := handler.NewCurrencyInfo(*cfg)
+	cache := service.NewSummaryCryptoList()
+	currencyInfo := handler.NewCurrencyInfo(*cfg, cache)
 
 	err = currencyInfo.CacheCurrency()
 	if err != nil {

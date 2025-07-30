@@ -6,74 +6,93 @@
 </head>
 <body>
 <h2>Search Crypto Assets</h2>
-<input type="text" id="search" placeholder="Search assets..." />
-<ul id="results"></ul>
+<label for="symbolInput">Search Symbol:</label>
+<input id="symbolInput" type="text" autocomplete="off" placeholder="Start typing...">
 <hr>
-<form id="pageQueryForm">
-    <label for="symbol">Symbol:</label>
-    <input type="text" id="symbol" name="symbol" required><br><br>
-
-    <label for="pagination">Pagination:</label>
-    <input type="text" id="pagination" name="pagination" required><br><br>
-
-    <label for="page">Page:</label>
-    <input type="text" id="page" name="page" required><br><br>
-
-    <button type="submit">Submit</button>
-
-    <div id="searchResults" style="margin-top: 1em;"></div>
-</form>
-
+<label for="pageInput" style="display:none;" id="pageLabel">Page:</label>
+<input id="pageInput" type="number" min="1" value="1" style="display:none;" required>
+<label for="paginationInput" style="display:none;" id="paginationLabel">Pagination:</label>
+<input id="paginationInput" type="number" min="1" value="10" style="display:none;" required>
+<button id="submitBtn" style="display:none;">Submit</button>
+<pre id="output"></pre>
 <script>
-    document.getElementById('pageQueryForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const symbol = encodeURIComponent(document.getElementById('symbol').value);
-        const pagination = encodeURIComponent(document.getElementById('pagination').value, 10);
-        const page = encodeURIComponent(document.getElementById('page').value, 10);
-        window.location.assign(`/results.html?symbol=${symbol}&pagination=${pagination}&page=${page}`);
-    });
-
+    let ws;
     let searchTimeout;
+    let symbolFound = false;
 
-    document.getElementById('search').addEventListener('input', function () {
-    const query = this.value.trim();
+    function setupWebSocket() {
+        ws = new WebSocket(`ws://${location.host}/coindesk`);
 
-    clearTimeout(searchTimeout);
-    if (!query) {
-    document.getElementById('searchResults').innerHTML = '';
-    return;
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+        };
+
+        document.getElementById("submitBtn").addEventListener("click", () => {
+            const symbol = document.getElementById("symbolInput").value.trim().toUpperCase();
+            const pageVal = document.getElementById('pageInput').value;
+            const paginationVal = document.getElementById('paginationInput').value;
+            if (!pageVal || !paginationVal) {
+                alert('Page and Pagination are required!');
+                return;
+            }
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: "search",
+                    symbol: symbol,
+                    page: parseInt(pageVal, 10),
+                    pagination: parseInt(paginationVal, 10)
+                }));
+            }
+        });
+
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.Data && data.Data.symbols) {
+                    symbolFound = false;
+                    document.getElementById('output').textContent = data.Data.symbols
+                        .map(item => `${item.symbol} - ${item.name}`)
+                        .join('\n');
+                    document.getElementById('pageInput').style.display = 'none';
+                    document.getElementById('paginationInput').style.display = 'none';
+                    document.getElementById('pageLabel').style.display = 'none';
+                    document.getElementById('paginationLabel').style.display = 'none';
+                    document.getElementById('submitBtn').style.display = 'none';
+                } else {
+                    symbolFound = true;
+                    document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+                    document.getElementById('pageInput').style.display = '';
+                    document.getElementById('paginationInput').style.display = '';
+                    document.getElementById('pageLabel').style.display = '';
+                    document.getElementById('paginationLabel').style.display = '';
+                    document.getElementById('submitBtn').style.display = '';
+                }
+            } catch (e) {
+                console.log("Invalid JSON from server:", event.data);
+            }
+        };
     }
 
-    searchTimeout = setTimeout(() => {
-        fetch(`/search?query=${encodeURIComponent(query)}`)
-            .then(res => res.json())
-            .then(data => {
-                const resultsDiv = document.getElementById('searchResults');
-                resultsDiv.innerHTML = '';
+    function debounceSend(symbol) {
+        if (searchTimeout) clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: "search",
+                    symbol: symbol
+                }));
+            }
+        }, 2000);
+    }
 
-                if (data.length === 0) {
-                    resultsDiv.textContent = 'No matches found.';
-                    return;
-                }
-
-                const ul = document.createElement('ul');
-                data.forEach(asset => {
-                    const li = document.createElement('li');
-                    li.textContent = `${asset.SYMBOL} - ${asset.NAME}`;
-                    li.addEventListener('click', () => {
-                        document.getElementById('search').value = asset.SYMBOL;
-                        resultsDiv.innerHTML = '';
-                    });
-                    ul.appendChild(li);
-                });
-                resultsDiv.appendChild(ul);
-            })
-            .catch(err => {
-                document.getElementById('searchResults').textContent = 'Error loading search results.';
-                console.error(err);
-            });
-    }, 200);
+    document.getElementById("symbolInput").addEventListener("input", (e) => {
+        const symbol = e.target.value.trim().toUpperCase();
+        debounceSend(symbol);
     });
+
+    window.onload = () => {
+        setupWebSocket();
+    };
 </script>
 </body>
 </html>

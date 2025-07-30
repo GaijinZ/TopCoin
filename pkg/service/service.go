@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
+	"strings"
 	"time"
 
 	"topcoint/pkg/config"
@@ -14,7 +14,35 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interface{}) {
+type Cacher interface {
+	HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interface{})
+	HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessages chan<- interface{})
+	CacheCurrency(cfg config.Config) error
+	BuildCurrencyInfoResponse(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error)
+}
+
+type CryptoCurrencyList struct {
+	Symbol string `json:"SYMBOL"`
+	Name   string `json:"NAME"`
+}
+
+type SummaryCryptoList struct {
+	Data struct {
+		List []CryptoCurrencyList `json:"LIST"`
+	} `json:"Data"`
+}
+
+func NewSummaryCryptoList() Cacher {
+	return &SummaryCryptoList{
+		Data: struct {
+			List []CryptoCurrencyList `json:"LIST"`
+		}{
+			List: make([]CryptoCurrencyList, 0),
+		},
+	}
+}
+
+func (c *SummaryCryptoList) HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interface{}) {
 	for msg := range serverMessages {
 		if err := conn.WriteJSON(msg); err != nil {
 			fmt.Println("Error sending message:", err)
@@ -23,7 +51,7 @@ func HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interfac
 	}
 }
 
-func HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessages chan<- interface{}) {
+func (c *SummaryCryptoList) HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessages chan<- interface{}) {
 	for {
 		var msg types.ClientMessage
 		if err := conn.ReadJSON(&msg); err != nil {
@@ -36,29 +64,26 @@ func HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessa
 
 		serverMessages <- map[string]string{"info": "Server-initiated message sent!"}
 
-		if err := msg.Validate(); err != nil {
-			conn.WriteJSON(map[string]string{"error": "Invalid input: " + err.Error()})
-			return
-		}
+		if msg.Action == "search" {
+			response, err := c.BuildCurrencyInfoResponse(cfg, msg)
+			if err != nil {
+				conn.WriteJSON(map[string]string{"error": err.Error()})
+				return
+			}
 
-		response, err := buildCurrencyInfoResponse(cfg, msg)
-		if err != nil {
-			conn.WriteJSON(map[string]string{"error": err.Error()})
-			return
+			serverMessages <- response
 		}
-
-		conn.WriteJSON(response)
 	}
 }
 
-func CacheCurrency(cfg config.Config, cache map[string]types.SummaryCryptoList) error {
+func (c *SummaryCryptoList) CacheCurrency(cfg config.Config) error {
 	url := fmt.Sprintf("%s/asset/v1/summary/list?asset_lookup_priority=SYMBOL", cfg.ApiURL)
 	body, err := fetchAPIData(cfg.ApiKey, url)
 	if err != nil {
 		return fmt.Errorf("failed to fetch currency data: %w", err)
 	}
 
-	err = unmarshallCacheData(body, cache)
+	err = unmarshallCacheData(body, c)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal cache data: %w", err)
 	}
@@ -66,25 +91,71 @@ func CacheCurrency(cfg config.Config, cache map[string]types.SummaryCryptoList) 
 	return nil
 }
 
-func buildCurrencyInfoResponse(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error) {
+func (c *SummaryCryptoList) BuildCurrencyInfoResponse(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error) {
 	response := types.CurrencyInfoResponse{Data: make(map[string]interface{})}
+	input := strings.ToUpper(msg.Symbol)
 
-	if msg.Page == 1 {
-		info, err := fetchCurrencyInfo(cfg, msg.Symbol)
+	matchedSymbols := findSuggestions(c.Data.List, input)
+	perfectMatchSymbol := findPerfectSymbolMatch(c.Data.List, input)
+
+	if perfectMatchSymbol == "" {
+		response.Data["symbols"] = matchedSymbols
+		return response, nil
+	}
+
+	response, _ = matchSymbol(perfectMatchSymbol, cfg, response)
+
+	if msg.Pagination > 0 && msg.Page > 0 {
+		if err := msg.Validate(); err != nil {
+			return response, fmt.Errorf("invalid message: %w", err)
+		}
+
+		stats, err := fetchCurrencyStats(cfg, msg.Page, msg.Pagination)
 		if err != nil {
-			return response, fmt.Errorf("error fetching currency info: %w", err)
+			return response, fmt.Errorf("error fetching currency stats: %w", err)
 		}
-		for k, v := range info {
-			response.Data[k] = v
+
+		response.Data["stats"] = stats
+	}
+
+	return response, nil
+}
+
+func findSuggestions(list []CryptoCurrencyList, input string) []map[string]string {
+	suggestions := make([]map[string]string, 0)
+
+	for _, entry := range list {
+		symbol := strings.ToUpper(entry.Symbol)
+		name := strings.ToUpper(entry.Name)
+		if strings.HasPrefix(symbol, input) || strings.HasPrefix(name, input) {
+			suggestions = append(suggestions, map[string]string{
+				"symbol": entry.Symbol,
+				"name":   entry.Name,
+			})
 		}
 	}
 
-	stats, err := fetchCurrencyStats(cfg, msg.Page, msg.Pagination)
-	if err != nil {
-		return response, fmt.Errorf("error fetching currency stats: %w", err)
+	return suggestions
+}
+
+func findPerfectSymbolMatch(list []CryptoCurrencyList, input string) string {
+	for _, entry := range list {
+		if strings.ToUpper(entry.Symbol) == input {
+			return entry.Symbol
+		}
 	}
-	for i, v := range stats {
-		response.Data[strconv.Itoa(i)] = v
+	return ""
+}
+
+func matchSymbol(perfectMatchSymbol string, cfg config.Config, response types.CurrencyInfoResponse) (types.CurrencyInfoResponse, error) {
+	info, err := fetchCurrencyInfo(cfg, perfectMatchSymbol)
+
+	if err != nil {
+		return response, fmt.Errorf("error fetching currency info: %w", err)
+	}
+
+	for k, v := range info {
+		response.Data[k] = v
 	}
 
 	return response, nil
@@ -175,15 +246,10 @@ func unmarshallData(body []byte, dest interface{}) error {
 	return nil
 }
 
-func unmarshallCacheData(body []byte, cache map[string]types.SummaryCryptoList) error {
-	var summary types.SummaryCryptoList
-	err := json.Unmarshal(body, &summary)
+func unmarshallCacheData(body []byte, cache *SummaryCryptoList) error {
+	err := json.Unmarshal(body, &cache)
 	if err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	for _, item := range summary.Data.List {
-		cache[item.Name] = summary
 	}
 
 	return nil

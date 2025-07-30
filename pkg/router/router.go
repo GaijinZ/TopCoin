@@ -11,7 +11,6 @@ func Router(currencyInfo handler.Currencier) http.Handler {
 
 	router.HandleFunc("/home", currencyInfo.Home)
 	router.HandleFunc("/coindesk", currencyInfo.GetCurrencyInfo)
-	router.HandleFunc("/search", currencyInfo.HandleSearch)
 
 	router.Handle("/", http.FileServer(http.Dir("./public")))
 
