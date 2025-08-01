@@ -46,10 +46,10 @@ type APIResponseWithError struct {
 }
 
 type ClientMessage struct {
-	Action     string `json:"action"`
 	Symbol     string `json:"symbol"`
 	Page       int    `json:"page"`
 	Pagination int    `json:"pagination"`
+	Reply      chan CurrencyInfoResponse
 }
 
 func (c *ClientMessage) Validate() error {

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"syscall"
 	"topcoint/pkg/service"
+	"topcoint/pkg/types"
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/handler"
@@ -20,7 +21,6 @@ func main() {
 	configPath := flag.String("config", "", "path to config file")
 	flag.Parse()
 
-	wg := &sync.WaitGroup{}
 	interrupt := make(chan os.Signal, 1)
 	defer close(interrupt)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -42,7 +42,9 @@ func main() {
 		fmt.Printf("Error initializing currency info: %v\n", err)
 	}
 
-	r := router.Router(currencyInfo)
+	requests := make(chan types.ClientMessage, 1)
+
+	r := router.Router(requests, currencyInfo)
 
 	srv, err := server.NewServer(
 		server.WithRouter(r),
@@ -56,13 +58,19 @@ func main() {
 
 	shutdownSignalChan := make(chan struct{})
 
+	wg := &sync.WaitGroup{}
 	waitForShutdownTrigger := func(chw chan struct{}, wg *sync.WaitGroup) {
 		wg.Wait()
 		chw <- struct{}{}
 		close(chw)
 	}
 
-	wg.Add(1)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		currencyInfo.APIClient(requests)
+	}()
+
 	go func() {
 		defer wg.Done()
 		srv.Run()

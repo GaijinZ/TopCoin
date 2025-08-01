@@ -37,7 +37,6 @@
             }
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    action: "search",
                     symbol: symbol,
                     page: parseInt(pageVal, 10),
                     pagination: parseInt(paginationVal, 10)
@@ -78,7 +77,6 @@
         searchTimeout = setTimeout(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    action: "search",
                     symbol: symbol
                 }));
             }

@@ -10,13 +10,10 @@ import (
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/types"
-
-	"github.com/gorilla/websocket"
 )
 
 type Cacher interface {
-	HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interface{})
-	HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessages chan<- interface{})
+	HandleIncomingMessages(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error)
 	CacheCurrency(cfg config.Config) error
 	BuildCurrencyInfoResponse(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error)
 }
@@ -42,38 +39,13 @@ func NewSummaryCryptoList() Cacher {
 	}
 }
 
-func (c *SummaryCryptoList) HandleOutgoingMessages(conn *websocket.Conn, serverMessages <-chan interface{}) {
-	for msg := range serverMessages {
-		if err := conn.WriteJSON(msg); err != nil {
-			fmt.Println("Error sending message:", err)
-			return
-		}
+func (c *SummaryCryptoList) HandleIncomingMessages(cfg config.Config, req types.ClientMessage) (types.CurrencyInfoResponse, error) {
+	response, err := c.BuildCurrencyInfoResponse(cfg, req)
+	if err != nil {
+		return types.CurrencyInfoResponse{}, fmt.Errorf("error building currency info response: %w", err)
 	}
-}
 
-func (c *SummaryCryptoList) HandleIncomingMessages(cfg config.Config, conn *websocket.Conn, serverMessages chan<- interface{}) {
-	for {
-		var msg types.ClientMessage
-		if err := conn.ReadJSON(&msg); err != nil {
-			fmt.Println("Error reading JSON:", err)
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				fmt.Printf("WebSocket closed unexpectedly: %v\n", err)
-			}
-			break
-		}
-
-		serverMessages <- map[string]string{"info": "Server-initiated message sent!"}
-
-		if msg.Action == "search" {
-			response, err := c.BuildCurrencyInfoResponse(cfg, msg)
-			if err != nil {
-				conn.WriteJSON(map[string]string{"error": err.Error()})
-				return
-			}
-
-			serverMessages <- response
-		}
-	}
+	return response, nil
 }
 
 func (c *SummaryCryptoList) CacheCurrency(cfg config.Config) error {
@@ -103,7 +75,14 @@ func (c *SummaryCryptoList) BuildCurrencyInfoResponse(cfg config.Config, msg typ
 		return response, nil
 	}
 
-	response, _ = matchSymbol(perfectMatchSymbol, cfg, response)
+	info, err := fetchCurrencyInfo(cfg, perfectMatchSymbol)
+	if err != nil {
+		return response, fmt.Errorf("error fetching currency info: %w", err)
+	}
+
+	for k, v := range info {
+		response.Data[k] = v
+	}
 
 	if msg.Pagination > 0 && msg.Page > 0 {
 		if err := msg.Validate(); err != nil {
@@ -144,21 +123,8 @@ func findPerfectSymbolMatch(list []CryptoCurrencyList, input string) string {
 			return entry.Symbol
 		}
 	}
+
 	return ""
-}
-
-func matchSymbol(perfectMatchSymbol string, cfg config.Config, response types.CurrencyInfoResponse) (types.CurrencyInfoResponse, error) {
-	info, err := fetchCurrencyInfo(cfg, perfectMatchSymbol)
-
-	if err != nil {
-		return response, fmt.Errorf("error fetching currency info: %w", err)
-	}
-
-	for k, v := range info {
-		response.Data[k] = v
-	}
-
-	return response, nil
 }
 
 func fetchCurrencyInfo(cfg config.Config, symbol string) (map[string]types.AssetInfo, error) {

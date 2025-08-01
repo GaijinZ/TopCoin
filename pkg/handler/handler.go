@@ -6,13 +6,15 @@ import (
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/service"
+	"topcoint/pkg/types"
 
 	"github.com/gorilla/websocket"
 )
 
 type Currencier interface {
 	Home(w http.ResponseWriter, r *http.Request)
-	GetCurrencyInfo(w http.ResponseWriter, r *http.Request)
+	APIClient(requests <-chan types.ClientMessage)
+	WSHandler(requests chan<- types.ClientMessage) http.HandlerFunc
 	CacheCurrency() error
 }
 
@@ -38,19 +40,43 @@ func (c *CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "public/home.html")
 }
 
-func (c *CurrencyInfo) GetCurrencyInfo(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		fmt.Println("Error upgrading connection:", err)
-		return
+func (c *CurrencyInfo) APIClient(requests <-chan types.ClientMessage) {
+	for req := range requests {
+		stats, err := c.cache.HandleIncomingMessages(c.cfg, req)
+		if err != nil {
+			fmt.Println("Error fetching currency info:", err)
+			continue
+		}
+
+		req.Reply <- types.CurrencyInfoResponse{Data: stats.Data}
 	}
-	defer conn.Close()
+}
 
-	serverMessages := make(chan interface{})
-	defer close(serverMessages)
+func (c *CurrencyInfo) WSHandler(requests chan<- types.ClientMessage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			fmt.Println("Error upgrading connection:", err)
+			return
+		}
+		defer conn.Close()
 
-	go c.cache.HandleOutgoingMessages(conn, serverMessages)
-	c.cache.HandleIncomingMessages(c.cfg, conn, serverMessages)
+		for {
+			var msg types.ClientMessage
+
+			err = conn.ReadJSON(&msg)
+			if err != nil {
+				fmt.Println("Error sending message:", err)
+				break
+			}
+
+			reply := make(chan types.CurrencyInfoResponse)
+			msg.Reply = reply
+			requests <- msg
+
+			conn.WriteJSON(<-reply)
+		}
+	}
 }
 
 func (c *CurrencyInfo) CacheCurrency() error {
