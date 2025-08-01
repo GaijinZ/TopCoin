@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"topcoint/pkg/service"
+	"topcoint/pkg/types"
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/handler"
@@ -19,7 +21,6 @@ func main() {
 	configPath := flag.String("config", "", "path to config file")
 	flag.Parse()
 
-	wg := sync.WaitGroup{}
 	interrupt := make(chan os.Signal, 1)
 	defer close(interrupt)
 	signal.Notify(interrupt, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
@@ -33,9 +34,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	currencyInfo := handler.NewCurrencyInfo(*cfg)
+	cache := service.NewSummaryCryptoList()
+	currencyInfo := handler.NewCurrencyInfo(*cfg, cache)
 
-	r := router.Router(currencyInfo)
+	err = currencyInfo.CacheCurrency()
+	if err != nil {
+		fmt.Printf("Error initializing currency info: %v\n", err)
+	}
+
+	requests := make(chan types.ClientMessage, 1)
+
+	r := router.Router(requests, currencyInfo)
 
 	srv, err := server.NewServer(
 		server.WithRouter(r),
@@ -49,19 +58,25 @@ func main() {
 
 	shutdownSignalChan := make(chan struct{})
 
+	wg := &sync.WaitGroup{}
 	waitForShutdownTrigger := func(chw chan struct{}, wg *sync.WaitGroup) {
 		wg.Wait()
 		chw <- struct{}{}
 		close(chw)
 	}
 
-	wg.Add(1)
+	wg.Add(2)
 	go func() {
-		srv.Run()
-		wg.Done()
+		defer wg.Done()
+		currencyInfo.APIClient(requests)
 	}()
 
-	go waitForShutdownTrigger(shutdownSignalChan, &wg)
+	go func() {
+		defer wg.Done()
+		srv.Run()
+	}()
+
+	go waitForShutdownTrigger(shutdownSignalChan, wg)
 
 	select {
 	case <-shutdownSignalChan:
