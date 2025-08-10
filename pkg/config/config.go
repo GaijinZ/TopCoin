@@ -6,10 +6,12 @@ import (
 )
 
 type Config struct {
-	HostName string `json:"hostname"`
-	ApiPort  string `json:"api_port"`
-	ApiURL   string `json:"api_url"`
-	ApiKey   string `json:"api_key"`
+	HostName      string `json:"hostname"`
+	ApiPort       string `json:"api_port"`
+	ApiURL        string `json:"api_url"`
+	ApiKey        string `json:"api_key"`
+	APIPage       int    `json:"default_page"`
+	APIPagination int    `json:"default_pagination"`
 }
 
 func DefaultConfig() *Config {
@@ -22,6 +24,11 @@ func DefaultConfig() *Config {
 }
 
 func LoadConfig(path string) (*Config, error) {
+	_, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return nil, err
+	}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return DefaultConfig(), nil

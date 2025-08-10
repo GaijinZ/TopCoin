@@ -8,13 +8,13 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"topcoint/pkg/service"
-	"topcoint/pkg/types"
 
 	"topcoint/pkg/config"
 	"topcoint/pkg/handler"
 	"topcoint/pkg/router"
 	"topcoint/pkg/server"
+	"topcoint/pkg/service"
+	"topcoint/pkg/types"
 )
 
 func main() {

@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"topcoint/pkg/config"
 )
 
 type AssetGraph map[string][]string
@@ -12,10 +13,12 @@ type CurrencyInfoResponse struct {
 
 type CurrencyInfoAPIResponse struct {
 	Data map[string]AssetInfo `json:"Data"`
+	APIResponseWithError
 }
 
 type CurrencyStatsAPIResponse struct {
 	Data CurrencyAPIStatsData `json:"Data"`
+	APIResponseWithError
 }
 
 type CurrencyAPIStatsData struct {
@@ -52,18 +55,23 @@ type ClientMessage struct {
 	Reply      chan CurrencyInfoResponse
 }
 
-func (c *ClientMessage) Validate() error {
+func (c *ClientMessage) Validate(cfg config.Config) error {
+	if c.Page == cfg.APIPage || c.Pagination == cfg.APIPagination {
+		c.setDefaults()
+	}
+
 	if c.Pagination >= 50 || c.Pagination < 10 {
 		return fmt.Errorf("pagination must be less then 50 and at least 10")
 	}
 
 	if c.Page < 1 {
-		return fmt.Errorf("page must be a number greater than 0")
-	}
-
-	if c.Page < 1 {
-		return fmt.Errorf("page must be a number")
+		return fmt.Errorf("page must be a number greater than 0 and be a number")
 	}
 
 	return nil
+}
+
+func (c *ClientMessage) setDefaults() {
+	c.Page = 1
+	c.Pagination = 10
 }
