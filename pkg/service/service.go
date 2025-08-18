@@ -18,23 +18,23 @@ type Cacher interface {
 	BuildCurrencyInfoResponse(cfg config.Config, msg types.ClientMessage) (types.CurrencyInfoResponse, error)
 }
 
-type CryptoCurrencyList struct {
+type CryptoCurrencyCachedData struct {
 	Symbol string `json:"SYMBOL"`
 	Name   string `json:"NAME"`
 }
 
 type SummaryCryptoList struct {
 	Data struct {
-		List []CryptoCurrencyList `json:"LIST"`
+		List map[string]CryptoCurrencyCachedData `json:"LIST"`
 	} `json:"Data"`
 }
 
 func NewSummaryCryptoList() Cacher {
 	return &SummaryCryptoList{
 		Data: struct {
-			List []CryptoCurrencyList `json:"LIST"`
+			List map[string]CryptoCurrencyCachedData `json:"LIST"`
 		}{
-			List: make([]CryptoCurrencyList, 0),
+			List: make(map[string]CryptoCurrencyCachedData),
 		},
 	}
 }
@@ -59,7 +59,6 @@ func (c *SummaryCryptoList) CacheCurrency(cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal cache data: %w", err)
 	}
-
 	return nil
 }
 
@@ -84,29 +83,23 @@ func (c *SummaryCryptoList) BuildCurrencyInfoResponse(cfg config.Config, msg typ
 		response.Data[k] = v
 	}
 
-	if msg.Pagination > 0 && msg.Page > 0 {
-		if err := msg.Validate(); err != nil {
-			return response, fmt.Errorf("invalid message: %w", err)
-		}
-
-		stats, err := fetchCurrencyStats(cfg, msg.Page, msg.Pagination)
-		if err != nil {
-			return response, fmt.Errorf("error fetching currency stats: %w", err)
-		}
-
-		response.Data["stats"] = stats
+	stats, err := fetchCurrencyStats(cfg, msg.Page, msg.Pagination)
+	if err != nil {
+		return response, fmt.Errorf("error fetching currency stats: %w", err)
 	}
+
+	response.Data["stats"] = stats
 
 	return response, nil
 }
 
-func findSuggestions(list []CryptoCurrencyList, input string) []map[string]string {
+func findSuggestions(cachedData map[string]CryptoCurrencyCachedData, symbolToSearch string) []map[string]string {
 	suggestions := make([]map[string]string, 0)
 
-	for _, entry := range list {
+	for _, entry := range cachedData {
 		symbol := strings.ToUpper(entry.Symbol)
 		name := strings.ToUpper(entry.Name)
-		if strings.HasPrefix(symbol, input) || strings.HasPrefix(name, input) {
+		if strings.HasPrefix(symbol, symbolToSearch) || strings.HasPrefix(name, symbolToSearch) {
 			suggestions = append(suggestions, map[string]string{
 				"symbol": entry.Symbol,
 				"name":   entry.Name,
@@ -117,11 +110,9 @@ func findSuggestions(list []CryptoCurrencyList, input string) []map[string]strin
 	return suggestions
 }
 
-func findPerfectSymbolMatch(list []CryptoCurrencyList, input string) string {
-	for _, entry := range list {
-		if strings.ToUpper(entry.Symbol) == input {
-			return entry.Symbol
-		}
+func findPerfectSymbolMatch(cachedData map[string]CryptoCurrencyCachedData, symbol string) string {
+	if _, ok := cachedData[symbol]; ok {
+		return symbol
 	}
 
 	return ""
@@ -200,22 +191,35 @@ func fetchAPIData(apiKey, url string) ([]byte, error) {
 }
 
 func unmarshallData(body []byte, dest interface{}) error {
-	var apiResp types.APIResponseWithError
-	if err := json.Unmarshal(body, &apiResp); err == nil && apiResp.Err != nil && apiResp.Err.Message != "" {
-		return fmt.Errorf("API error: %s", apiResp.Err.Message)
+	if err := json.Unmarshal(body, dest); err != nil {
+		return fmt.Errorf("api unmarshall error: %s", err)
 	}
 
-	if err := json.Unmarshal(body, &dest); err != nil {
-		return fmt.Errorf("failed to unmarshal response: %w", err)
+	if withErr, ok := dest.(interface {
+		APIResponseWithError() types.APIResponseWithError
+	}); ok {
+		if apiErr := withErr.APIResponseWithError(); apiErr.Err != nil {
+			return fmt.Errorf("api error: %s", apiErr.Err.Message)
+		}
 	}
 
 	return nil
 }
 
 func unmarshallCacheData(body []byte, cache *SummaryCryptoList) error {
-	err := json.Unmarshal(body, &cache)
-	if err != nil {
+	var temp struct {
+		Data struct {
+			List []CryptoCurrencyCachedData `json:"LIST"`
+		} `json:"Data"`
+	}
+
+	if err := json.Unmarshal(body, &temp); err != nil {
 		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	cache.Data.List = make(map[string]CryptoCurrencyCachedData, len(temp.Data.List))
+	for _, entry := range temp.Data.List {
+		cache.Data.List[strings.ToUpper(entry.Symbol)] = entry
 	}
 
 	return nil

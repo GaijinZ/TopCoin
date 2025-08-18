@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"topcoint/pkg/config"
@@ -36,15 +37,20 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func (c *CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
+func (c CurrencyInfo) Home(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "public/home.html")
 }
 
-func (c *CurrencyInfo) APIClient(requests <-chan types.ClientMessage) {
+func (c CurrencyInfo) APIClient(requests <-chan types.ClientMessage) {
 	for req := range requests {
+		if err := req.Validate(c.cfg); err != nil {
+			log.Printf("invalid message: %s", err)
+			break
+		}
+
 		stats, err := c.cache.HandleIncomingMessages(c.cfg, req)
 		if err != nil {
-			fmt.Println("Error fetching currency info:", err)
+			log.Printf("Error fetching currency info: %s", err)
 			continue
 		}
 
@@ -52,7 +58,7 @@ func (c *CurrencyInfo) APIClient(requests <-chan types.ClientMessage) {
 	}
 }
 
-func (c *CurrencyInfo) WSHandler(requests chan<- types.ClientMessage) http.HandlerFunc {
+func (c CurrencyInfo) WSHandler(requests chan<- types.ClientMessage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -79,7 +85,7 @@ func (c *CurrencyInfo) WSHandler(requests chan<- types.ClientMessage) http.Handl
 	}
 }
 
-func (c *CurrencyInfo) CacheCurrency() error {
+func (c CurrencyInfo) CacheCurrency() error {
 	err := c.cache.CacheCurrency(c.cfg)
 	if err != nil {
 		return fmt.Errorf("failed to cache currency data: %w", err)
